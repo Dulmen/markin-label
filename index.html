@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Markin Label">
+<meta name="theme-color" content="#0f0f0f">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png">
+<link rel="apple-touch-icon" sizes="120x120" href="icons/icon-120.png">
+<title>Vinted → Markin A465</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#252525;
+  --border:#2a2a2a;--accent:#e8ff47;--text:#f0f0f0;
+  --muted:#555;--green:#4fffb0;--orange:#ff9f47;--red:#ff5e5e;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+html,body{height:100%;overflow:hidden;}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:'DM Sans',sans-serif;
+  display:flex;flex-direction:column;
+  padding-top:var(--safe-top);
+  padding-bottom:var(--safe-bottom);
+}
+
+/* ── TOP BAR ── */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.9rem 1rem .7rem;
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.topbar h1{font-family:'DM Mono',monospace;font-size:1rem;font-weight:500;}
+.topbar h1 span{color:var(--accent);}
+.topbar-right{font-size:.7rem;color:var(--muted);font-family:'DM Mono',monospace;}
+
+/* ── TABS ── */
+.tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;}
+.tab{
+  flex:1;padding:.65rem .5rem;text-align:center;
+  font-size:.75rem;font-family:'DM Mono',monospace;color:var(--muted);
+  cursor:pointer;transition:color .15s;border-bottom:2px solid transparent;
+  position:relative;
+}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab .badge{
+  position:absolute;top:6px;right:calc(50% - 22px);
+  background:var(--accent);color:#0f0f0f;
+  font-size:.55rem;font-weight:700;border-radius:999px;
+  padding:1px 5px;min-width:16px;text-align:center;
+  display:none;
+}
+.tab .badge.show{display:inline-block;}
+
+/* ── SCROLL CONTENT ── */
+.screen{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column;}
+.screen.active{display:flex;}
+
+/* ── UPLOAD SCREEN ── */
+#screen-upload{align-items:center;padding:1.5rem 1rem 2rem;}
+.upload-card{
+  width:100%;max-width:400px;
+  border:1.5px dashed var(--border);border-radius:14px;
+  padding:2.5rem 1.5rem;text-align:center;
+  background:var(--surface);position:relative;cursor:pointer;
+  transition:border-color .2s,background .2s;
+  margin-bottom:1rem;
+}
+.upload-card:active{border-color:var(--accent);background:rgba(232,255,71,.04);}
+.upload-card input[type=file]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;}
+.upload-icon{font-size:2.5rem;margin-bottom:.8rem;}
+.upload-card h2{font-size:1rem;font-weight:500;margin-bottom:.4rem;}
+.upload-card p{font-size:.82rem;color:var(--muted);line-height:1.6;}
+
+.settings-block{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:.35rem 0;}
+.setting-row:not(:last-child){border-bottom:1px solid var(--border);}
+.setting-row label{font-size:.78rem;color:var(--muted);font-family:'DM Mono',monospace;}
+.setting-row select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.3rem .6rem;border-radius:6px;font-size:.75rem;font-family:'DM Mono',monospace;outline:none;}
+
+#progress-wrap{width:100%;max-width:400px;margin-top:1rem;display:none;}
+.progress-bar-bg{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+.progress-bar-fill{height:100%;background:var(--accent);width:0%;transition:width .3s;}
+.progress-label{font-size:.7rem;color:var(--muted);font-family:'DM Mono',monospace;margin-top:.4rem;}
+
+/* ── POOL SCREEN ── */
+#screen-pool{padding:1rem;}
+.pool-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;}
+.pool-header h2{font-size:.8rem;font-family:'DM Mono',monospace;color:var(--muted);}
+.add-btn{background:transparent;border:1px solid var(--border);color:var(--muted);padding:.35rem .75rem;border-radius:6px;font-size:.72rem;font-family:'DM Mono',monospace;cursor:pointer;position:relative;}
+.add-btn input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;}
+.add-btn:active{border-color:var(--accent);color:var(--accent);}
+
+#pool-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;}
+.label-thumb{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:8px;
+  aspect-ratio:99/139;display:flex;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;cursor:pointer;
+  transition:border-color .15s;
+}
+.label-thumb.used{opacity:.3;pointer-events:none;}
+.label-thumb.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,255,71,.25);}
+.label-thumb:active:not(.used){border-color:var(--accent);}
+.label-thumb canvas{max-width:100%;max-height:100%;display:block;pointer-events:none;}
+.thumb-num{position:absolute;top:3px;left:5px;font-size:.58rem;font-family:'DM Mono',monospace;color:var(--muted);}
+.thumb-del{position:absolute;top:2px;right:3px;background:rgba(0,0,0,.6);border:none;color:var(--muted);font-size:.65rem;padding:2px 4px;border-radius:3px;cursor:pointer;line-height:1;}
+.thumb-del:active{color:var(--red);}
+
+.pool-empty{color:var(--muted);font-size:.82rem;font-family:'DM Mono',monospace;text-align:center;padding:2rem;width:100%;}
+
+/* ── SHEET SCREEN ── */
+#screen-sheet{padding:1rem;align-items:center;}
+.sheet-header{width:100%;display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;}
+.sheet-header h2{font-size:.8rem;font-family:'DM Mono',monospace;color:var(--muted);}
+.clear-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:.32rem .65rem;border-radius:6px;font-size:.7rem;font-family:'DM Mono',monospace;cursor:pointer;}
+.clear-btn:active{border-color:var(--red);color:var(--red);}
+
+/* Sheet A4 preview */
+#sheet-wrap{
+  width:100%;max-width:340px;
+  background:white;border-radius:6px;
+  box-shadow:0 4px 30px rgba(0,0,0,.7);
+  position:relative;
+  /* A4 ratio 210:297 */
+  aspect-ratio:210/297;
+  overflow:hidden;
+}
+.sheet-slot{
+  position:absolute;
+  border:1.5px dashed #ccc;
+  border-radius:3px;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;cursor:pointer;
+  transition:background .15s,border-color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.sheet-slot.empty{background:rgba(0,0,0,.02);}
+.sheet-slot.empty:active{background:rgba(232,255,71,.1);}
+.sheet-slot.blocked{
+  background:repeating-linear-gradient(45deg,#f5f5f5,#f5f5f5 3px,#ebebeb 3px,#ebebeb 6px);
+  cursor:pointer;
+}
+.sheet-slot.filled{border-color:#ddd;border-style:solid;cursor:pointer;}
+.sheet-slot canvas{max-width:100%;max-height:100%;display:block;pointer-events:none;}
+.slot-lbl{font-size:9px;color:#bbb;font-family:monospace;user-select:none;}
+.slot-x{position:absolute;top:2px;right:3px;background:rgba(255,255,255,.9);border:none;border-radius:2px;font-size:10px;cursor:pointer;padding:1px 3px;color:#999;line-height:1.4;}
+
+/* slot picker modal */
+#slot-picker{
+  position:fixed;inset:0;background:rgba(0,0,0,.75);
+  display:none;align-items:flex-end;justify-content:center;
+  z-index:100;padding-bottom:var(--safe-bottom);
+}
+#slot-picker.open{display:flex;}
+.picker-sheet{
+  background:var(--surface);border-radius:16px 16px 0 0;
+  padding:1.2rem 1rem 1.5rem;width:100%;max-width:420px;
+}
+.picker-title{font-size:.8rem;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:1rem;text-align:center;}
+.picker-slots{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.8rem;}
+.picker-slot{
+  background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;
+  padding:.8rem;text-align:center;cursor:pointer;
+  font-family:'DM Mono',monospace;font-size:.8rem;color:var(--text);
+  transition:border-color .15s,background .15s;
+}
+.picker-slot:active{border-color:var(--accent);background:rgba(232,255,71,.08);color:var(--accent);}
+.picker-slot.unavailable{opacity:.3;pointer-events:none;}
+.picker-slot .slot-icon{font-size:1.4rem;display:block;margin-bottom:.3rem;}
+.picker-cancel{width:100%;background:none;border:1px solid var(--border);color:var(--muted);padding:.6rem;border-radius:8px;font-size:.8rem;font-family:'DM Mono',monospace;cursor:pointer;}
+.picker-cancel:active{border-color:var(--red);color:var(--red);}
+
+/* block slot hint */
+.sheet-hint{font-size:.68rem;color:var(--muted);font-family:'DM Mono',monospace;margin-top:.7rem;text-align:center;line-height:1.6;}
+
+/* print button */
+#print-btn{
+  margin-top:1rem;width:100%;max-width:340px;
+  background:var(--accent);border:none;color:#0f0f0f;
+  padding:.85rem;border-radius:10px;font-size:.9rem;font-weight:500;
+  font-family:'DM Mono',monospace;cursor:pointer;
+  transition:opacity .15s;
+}
+#print-btn:disabled{opacity:.3;}
+#print-btn:active:not(:disabled){opacity:.8;}
+
+/* ── LEGEND ── */
+.legend{display:flex;gap:1rem;margin-top:.6rem;flex-wrap:wrap;justify-content:center;}
+.legend-item{display:flex;align-items:center;gap:.3rem;font-size:.65rem;color:var(--muted);font-family:'DM Mono',monospace;}
+.legend-swatch{width:12px;height:12px;border-radius:2px;flex-shrink:0;}
+
+/* toast */
+#toast{
+  position:fixed;bottom:calc(80px + var(--safe-bottom));left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:.5rem 1.1rem;border-radius:8px;font-size:.75rem;font-family:'DM Mono',monospace;
+  opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;white-space:nowrap;z-index:200;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Vinted <span>→</span> Markin A465</h1>
+  <span class="topbar-right" id="poolCount"></span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="upload">① Carica</div>
+  <div class="tab" data-tab="pool">② Etichette <span class="badge" id="poolBadge">0</span></div>
+  <div class="tab" data-tab="sheet">③ Foglio</div>
+</div>
+
+<!-- UPLOAD -->
+<div class="screen active" id="screen-upload">
+  <div class="upload-card" id="uploadCard">
+    <input type="file" id="fileInput" accept=".pdf" multiple>
+    <div class="upload-icon">📄</div>
+    <h2>Carica PDF Vinted</h2>
+    <p>Tocca per selezionare<br>uno o più file PDF</p>
+  </div>
+
+  <div class="settings-block">
+    <div class="setting-row">
+      <label>Qualità</label>
+      <select id="qualitySelect">
+        <option value="2">Standard</option>
+        <option value="3" selected>Alta</option>
+        <option value="4">Massima</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label>Soglia bianco</label>
+      <select id="threshSelect">
+        <option value="240">Stretta</option>
+        <option value="250" selected>Normale</option>
+        <option value="253">Larga</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="progress-wrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBar"></div></div>
+    <div class="progress-label" id="progressLabel"></div>
+  </div>
+</div>
+
+<!-- POOL -->
+<div class="screen" id="screen-pool">
+  <div class="pool-header">
+    <h2>Etichette estratte — tocca per posizionare</h2>
+    <button class="add-btn">
+      <input type="file" id="addMoreInput" accept=".pdf" multiple>
+      ＋ Aggiungi
+    </button>
+  </div>
+  <div id="pool-grid">
+    <div class="pool-empty">Nessuna etichetta ancora</div>
+  </div>
+</div>
+
+<!-- SHEET -->
+<div class="screen" id="screen-sheet">
+  <div class="sheet-header">
+    <h2>Foglio A465 (4 slot)</h2>
+    <button class="clear-btn" id="clearBtn">Svuota</button>
+  </div>
+
+  <div id="sheet-wrap">
+    <!-- slots rendered by JS -->
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:repeating-linear-gradient(45deg,#f0f0f0,#f0f0f0 2px,#e0e0e0 2px,#e0e0e0 4px);border:1px solid #ccc;"></div>Già usato</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:rgba(232,255,71,.15);border:1px solid #b8cc00;"></div>Con etichetta</div>
+  </div>
+
+  <div class="sheet-hint">Tocca uno slot vuoto → scegli etichetta<br>Tocca slot vuoto due volte → segna come già usato</div>
+
+  <button id="print-btn" disabled>⬇ Scarica PDF da stampare</button>
+</div>
+
+<!-- SLOT PICKER MODAL -->
+<div id="slot-picker">
+  <div class="picker-sheet">
+    <div class="picker-title">Scegli etichetta da posizionare</div>
+    <div id="picker-thumbs" style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-bottom:.8rem;max-height:280px;overflow-y:auto;"></div>
+    <button class="picker-cancel" id="pickerCancel">Annulla</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ── SERVICE WORKER ────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// ── LAYOUT CONSTANTS ─────────────────────────────────────────
+// A465: 4 etichette 99×139mm su A4 210×297mm
+// slot positions as % of sheet
+const SLOTS = [
+  { col:0, row:0, label:'↖ A' },
+  { col:1, row:0, label:'↗ B' },
+  { col:0, row:1, label:'↙ C' },
+  { col:1, row:1, label:'↘ D' },
+];
+const MAR_L_PCT = 6/210*100;
+const MAR_T_PCT = 7/297*100;
+const SW_PCT    = 99/210*100;
+const SH_PCT    = 139/297*100;
+const GAP_Y_PCT = 5/297*100;
+
+function slotStyle(idx) {
+  const { col, row } = SLOTS[idx];
+  return {
+    left:   (MAR_L_PCT + col * SW_PCT) + '%',
+    top:    (MAR_T_PCT + row * (SH_PCT + GAP_Y_PCT)) + '%',
+    width:  SW_PCT + '%',
+    height: SH_PCT + '%',
+  };
+}
+
+// ── STATE ─────────────────────────────────────────────────────
+const pool  = [];   // { canvas, id, usedInSlot: -1|0-3 }
+const sheet = [null, null, null, null]; // null | 'blocked' | { poolId, canvas }
+let idCounter = 0;
+let pendingSlotIdx = null; // which slot we're filling
+
+// ── TABS ──────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('screen-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+function goToTab(name) {
+  document.querySelectorAll('.tab').forEach(t => { t.classList.toggle('active', t.dataset.tab === name); });
+  document.querySelectorAll('.screen').forEach(s => { s.classList.toggle('active', s.id === 'screen-' + name); });
+}
+
+// ── FILE INPUT ────────────────────────────────────────────────
+document.getElementById('fileInput').addEventListener('change', e => handleFiles([...e.target.files]));
+document.getElementById('addMoreInput').addEventListener('change', e => handleFiles([...e.target.files]));
+
+async function handleFiles(files) {
+  files = files.filter(f => f.type === 'application/pdf');
+  if (!files.length) return;
+  const pw = document.getElementById('progress-wrap');
+  pw.style.display = 'block';
+  const pb = document.getElementById('progressBar');
+  const pl = document.getElementById('progressLabel');
+  pb.style.width = '0%';
+  const scale = parseFloat(document.getElementById('qualitySelect').value);
+  let done = 0;
+  for (const file of files) {
+    pl.textContent = file.name;
+    const canvases = await pdfToCanvases(file, scale);
+    for (const c of canvases) {
+      const cropped = autoCropAndOrient(c);
+      pool.push({ canvas: cropped, id: idCounter++, usedInSlot: -1 });
+    }
+    done++;
+    pb.style.width = (done/files.length*100) + '%';
+  }
+  pl.textContent = `✓ ${pool.length} etichett${pool.length!==1?'e':'a'}`;
+  updatePoolBadge();
+  renderPool();
+  goToTab('pool');
+  showToast(`${pool.length} etichett${pool.length!==1?'e':'a'} nel pool`);
+}
+
+async function pdfToCanvases(file, scale) {
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+  const list = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({ scale });
+    const c = document.createElement('canvas');
+    c.width = vp.width; c.height = vp.height;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,c.width,c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    list.push(c);
+  }
+  return list;
+}
+
+// ── AUTO CROP + ORIENT ────────────────────────────────────────
+function autoCropAndOrient(canvas) {
+  const thresh = parseInt(document.getElementById('threshSelect').value);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const data = ctx.getImageData(0,0,W,H).data;
+  function rowHas(y){const b=y*W*4;for(let x=0;x<W;x++){const i=b+x*4;if(data[i]<thresh||data[i+1]<thresh||data[i+2]<thresh)return true;}return false;}
+  function colHas(x){for(let y=0;y<H;y++){const i=(y*W+x)*4;if(data[i]<thresh||data[i+1]<thresh||data[i+2]<thresh)return true;}return false;}
+  let top=0,bottom=H-1,left=0,right=W-1;
+  while(top<H&&!rowHas(top))top++;
+  while(bottom>top&&!rowHas(bottom))bottom--;
+  while(left<W&&!colHas(left))left++;
+  while(right>left&&!colHas(right))right--;
+  const pad=Math.round(Math.min(W,H)*0.008);
+  top=Math.max(0,top-pad);bottom=Math.min(H-1,bottom+pad);
+  left=Math.max(0,left-pad);right=Math.min(W-1,right+pad);
+  const cw=right-left+1,ch=bottom-top+1;
+  const out=document.createElement('canvas');out.width=cw;out.height=ch;
+  out.getContext('2d').drawImage(canvas,left,top,cw,ch,0,0,cw,ch);
+  if(out.width>out.height) return rotateCanvas(out,90);
+  return out;
+}
+
+// ── POOL ──────────────────────────────────────────────────────
+function renderPool() {
+  const grid = document.getElementById('pool-grid');
+  grid.innerHTML = '';
+  if (!pool.length) {
+    grid.innerHTML = '<div class="pool-empty">Nessuna etichetta ancora</div>';
+    return;
+  }
+  pool.forEach((item, idx) => {
+    const div = document.createElement('div');
+    div.className = 'label-thumb' + (item.usedInSlot >= 0 ? ' used' : '');
+    const num = document.createElement('span'); num.className = 'thumb-num'; num.textContent = '#'+(idx+1);
+    const thumb = makeThumbnail(item.canvas, 200, 280);
+    const del = document.createElement('button'); del.className = 'thumb-del'; del.textContent = '✕';
+    del.addEventListener('click', e => { e.stopPropagation(); deleteFromPool(item.id); });
+    div.append(num, thumb, del);
+    // tap to assign to sheet
+    div.addEventListener('click', () => {
+      if (item.usedInSlot >= 0) return;
+      openSlotPicker(item.id);
+    });
+    grid.appendChild(div);
+  });
+}
+
+function deleteFromPool(id) {
+  const idx = pool.findIndex(p => p.id === id);
+  if (idx < 0) return;
+  const item = pool[idx];
+  if (item.usedInSlot >= 0) { sheet[item.usedInSlot] = null; buildSheet(); }
+  pool.splice(idx, 1);
+  renderPool(); updatePoolBadge(); updatePrintBtn();
+}
+
+function updatePoolBadge() {
+  const avail = pool.filter(p => p.usedInSlot < 0).length;
+  const badge = document.getElementById('poolBadge');
+  badge.textContent = pool.length;
+  badge.classList.toggle('show', pool.length > 0);
+  document.getElementById('poolCount').textContent = pool.length ? `${avail} disponibil${avail!==1?'i':'e'}` : '';
+}
+
+// ── SLOT PICKER ───────────────────────────────────────────────
+function openSlotPicker(poolId) {
+  // Show which slots are available
+  const picker = document.getElementById('slot-picker');
+  const thumbs = document.getElementById('picker-thumbs');
+  thumbs.innerHTML = '';
+
+  // Show available slots as options
+  const availableSlots = SLOTS.map((s,i) => ({ ...s, idx:i, available: !sheet[i] || sheet[i] === null }))
+    .filter(s => s.available || sheet[s.idx] === null);
+
+  // Actually just show all 4 slots
+  SLOTS.forEach((s, i) => {
+    const slotDiv = document.createElement('div');
+    const isOccupied = sheet[i] && sheet[i] !== null;
+    const isBlocked = sheet[i] === 'blocked';
+    slotDiv.className = 'picker-slot' + (isOccupied ? ' unavailable' : '');
+
+    let icon = ['↖','↗','↙','↘'][i];
+    let label = s.label;
+    let sublabel = isOccupied ? (isBlocked ? 'usato' : 'occupato') : 'vuoto';
+
+    slotDiv.innerHTML = `<span class="slot-icon">${icon}</span>${label}<br><span style="font-size:.65rem;color:var(--muted)">${sublabel}</span>`;
+    slotDiv.addEventListener('click', () => {
+      assignToSlot(poolId, i);
+      picker.classList.remove('open');
+    });
+    thumbs.appendChild(slotDiv);
+  });
+
+  picker.classList.add('open');
+}
+
+document.getElementById('pickerCancel').addEventListener('click', () => {
+  document.getElementById('slot-picker').classList.remove('open');
+});
+document.getElementById('slot-picker').addEventListener('click', e => {
+  if (e.target === document.getElementById('slot-picker'))
+    document.getElementById('slot-picker').classList.remove('open');
+});
+
+function assignToSlot(poolId, slotIdx) {
+  const item = pool.find(p => p.id === poolId);
+  if (!item) return;
+  // free previous if any
+  if (item.usedInSlot >= 0) { sheet[item.usedInSlot] = null; }
+  sheet[slotIdx] = { poolId, canvas: item.canvas };
+  item.usedInSlot = slotIdx;
+  renderPool(); buildSheet(); updatePoolBadge(); updatePrintBtn();
+  goToTab('sheet');
+  showToast(`Etichetta #${pool.indexOf(item)+1} → slot ${SLOTS[slotIdx].label}`);
+}
+
+// ── SHEET ─────────────────────────────────────────────────────
+function buildSheet() {
+  const wrap = document.getElementById('sheet-wrap');
+  wrap.innerHTML = '';
+
+  for (let i = 0; i < 4; i++) {
+    const s = slotStyle(i);
+    const slot = document.createElement('div');
+    slot.className = 'sheet-slot';
+    slot.style.left   = s.left;
+    slot.style.top    = s.top;
+    slot.style.width  = s.width;
+    slot.style.height = s.height;
+
+    const val = sheet[i];
+
+    if (val === 'blocked') {
+      slot.classList.add('blocked');
+      const lbl = document.createElement('div'); lbl.className='slot-lbl'; lbl.textContent='già usato';
+      slot.appendChild(lbl);
+      slot.addEventListener('click', () => { sheet[i]=null; buildSheet(); updatePrintBtn(); showToast('Slot sbloccato'); });
+
+    } else if (val && val.canvas) {
+      slot.classList.add('filled');
+      const img = makeThumbnail(val.canvas, wrap.offsetWidth * parseFloat(s.width)/100 - 4, wrap.offsetHeight * parseFloat(s.height)/100 - 4);
+      const rmv = document.createElement('button'); rmv.className='slot-x'; rmv.textContent='✕';
+      rmv.addEventListener('click', e => {
+        e.stopPropagation();
+        const item = pool.find(p => p.id === val.poolId);
+        if (item) item.usedInSlot = -1;
+        sheet[i] = null;
+        renderPool(); buildSheet(); updatePoolBadge(); updatePrintBtn();
+      });
+      slot.append(img, rmv);
+      // tap filled slot → open picker to reassign
+      slot.addEventListener('click', () => {
+        const item = pool.find(p => p.id === val.poolId);
+        if (item) { item.usedInSlot = -1; sheet[i] = null; renderPool(); buildSheet(); updatePoolBadge(); updatePrintBtn(); openSlotPicker(item.id); }
+      });
+
+    } else {
+      slot.classList.add('empty');
+      const lbl = document.createElement('div'); lbl.className='slot-lbl'; lbl.textContent=SLOTS[i].label;
+      slot.appendChild(lbl);
+      let tapCount = 0, tapTimer = null;
+      slot.addEventListener('click', () => {
+        tapCount++;
+        if (tapCount === 1) {
+          tapTimer = setTimeout(() => {
+            tapCount = 0;
+            // single tap → open pool to pick label
+            const avail = pool.filter(p => p.usedInSlot < 0);
+            if (avail.length) openSlotPicker(avail[0].id);
+            else { goToTab('pool'); showToast('Aggiungi etichette prima'); }
+          }, 280);
+        } else {
+          clearTimeout(tapTimer); tapCount = 0;
+          // double tap → block
+          sheet[i] = 'blocked'; buildSheet(); updatePrintBtn(); showToast('Slot segnato come già usato');
+        }
+      });
+    }
+    wrap.appendChild(slot);
+  }
+  updatePrintBtn();
+}
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  for (let i=0;i<4;i++){
+    if(sheet[i]&&sheet[i]!=='blocked'){
+      const item=pool.find(p=>sheet[i]&&p.id===sheet[i].poolId);
+      if(item)item.usedInSlot=-1;
+    }
+    sheet[i]=null;
+  }
+  renderPool();buildSheet();updatePoolBadge();updatePrintBtn();
+  showToast('Foglio svuotato');
+});
+
+function updatePrintBtn() {
+  const hasAny = sheet.some(s => s && s !== 'blocked' && s.canvas);
+  document.getElementById('print-btn').disabled = !hasAny;
+}
+
+// ── GENERATE PDF ──────────────────────────────────────────────
+document.getElementById('print-btn').addEventListener('click', generatePDF);
+
+function generatePDF() {
+  showToast('Generazione PDF...');
+  setTimeout(() => {
+    const DPI = 300;
+    const A4W = Math.round(210/25.4*DPI);
+    const A4H = Math.round(297/25.4*DPI);
+    const ppm = DPI/25.4;
+    const mL=Math.round(6*ppm), mT=Math.round(7*ppm);
+    const sW=Math.round(99*ppm), sH=Math.round(139*ppm);
+    const gY=Math.round(5*ppm);
+
+    const out=document.createElement('canvas');
+    out.width=A4W;out.height=A4H;
+    const ctx=out.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,A4W,A4H);
+
+    for(let i=0;i<4;i++){
+      const val=sheet[i];
+      if(!val||val==='blocked'||!val.canvas)continue;
+      const {col,row}=SLOTS[i];
+      const x=mL+col*sW;
+      const y=mT+row*(sH+gY);
+      ctx.drawImage(val.canvas,x,y,sW,sH);
+    }
+
+    out.toBlob(blob=>{
+      const reader=new FileReader();
+      reader.onload=()=>{
+        const imgData=reader.result.split(',')[1];
+        const pdfBytes=buildMinimalPDF(imgData,A4W,A4H);
+        const pdfBlob=new Blob([pdfBytes],{type:'application/pdf'});
+        const url=URL.createObjectURL(pdfBlob);
+        const a=document.createElement('a');
+        a.href=url;a.download='markin_'+Date.now()+'.pdf';a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),3000);
+        showToast('PDF scaricato!');
+      };
+      reader.readAsDataURL(blob);
+    },'image/jpeg',0.95);
+  },50);
+}
+
+function buildMinimalPDF(jpegBase64,imgW,imgH){
+  const jpegBytes=base64ToBytes(jpegBase64);
+  const ptW=595.28,ptH=841.89;
+  const xrefPos=[]; const parts=[];
+  function push(s){parts.push(s);}
+  function pushB(b){parts.push(b);}
+  function byteLen(){return parts.reduce((a,p)=>a+(typeof p==='string'?new TextEncoder().encode(p).length:p.length),0);}
+  push('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
+  xrefPos[1]=byteLen();push('1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n');
+  xrefPos[2]=byteLen();push('2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n');
+  xrefPos[3]=byteLen();push(`3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${ptW} ${ptH}]/Contents 4 0 R/Resources<</XObject<</Img 5 0 R>>>>>>\nendobj\n`);
+  const stream=new TextEncoder().encode(`q ${ptW} 0 0 ${ptH} 0 0 cm /Img Do Q`);
+  xrefPos[4]=byteLen();push(`4 0 obj\n<</Length ${stream.length}>>\nstream\n`);pushB(stream);push('\nendstream\nendobj\n');
+  xrefPos[5]=byteLen();push(`5 0 obj\n<</Type/XObject/Subtype/Image/Width ${imgW}/Height ${imgH}/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ${jpegBytes.length}>>\nstream\n`);pushB(jpegBytes);push('\nendstream\nendobj\n');
+  const xref=byteLen();
+  push('xref\n0 6\n0000000000 65535 f \n');
+  for(let i=1;i<=5;i++)push(xrefPos[i].toString().padStart(10,'0')+' 00000 n \n');
+  push(`trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`);
+  const total=parts.reduce((a,p)=>a+(typeof p==='string'?new TextEncoder().encode(p).length:p.length),0);
+  const res=new Uint8Array(total);let off=0;
+  for(const p of parts){const b=typeof p==='string'?new TextEncoder().encode(p):p;res.set(b,off);off+=b.length;}
+  return res;
+}
+function base64ToBytes(b64){const bin=atob(b64);const b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);return b;}
+
+// ── UTILS ─────────────────────────────────────────────────────
+function makeThumbnail(canvas,maxW,maxH){
+  const r=Math.min(maxW/canvas.width,maxH/canvas.height);
+  const c=document.createElement('canvas');c.width=Math.round(canvas.width*r);c.height=Math.round(canvas.height*r);
+  c.getContext('2d').drawImage(canvas,0,0,c.width,c.height);return c;
+}
+function rotateCanvas(src,deg){
+  const sw=deg===90||deg===270;const c=document.createElement('canvas');
+  c.width=sw?src.height:src.width;c.height=sw?src.width:src.height;
+  const ctx=c.getContext('2d');ctx.translate(c.width/2,c.height/2);ctx.rotate(deg*Math.PI/180);ctx.drawImage(src,-src.width/2,-src.height/2);return c;
+}
+function showToast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+buildSheet();
+</script>
+</body>
+</html>
