@@ -206,6 +206,41 @@ body{
   opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;white-space:nowrap;z-index:200;
 }
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ── CROP MODAL ── */
+#crop-modal{
+  position:fixed;inset:0;background:rgba(0,0,0,.92);
+  display:none;flex-direction:column;z-index:300;
+  padding-top:var(--safe-top);padding-bottom:var(--safe-bottom);
+}
+#crop-modal.open{display:flex;}
+.crop-topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.8rem 1rem;flex-shrink:0;border-bottom:1px solid var(--border);
+}
+.crop-topbar-title{font-family:'DM Mono',monospace;font-size:.82rem;color:var(--text);}
+.crop-topbar-hint{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--accent);}
+#crop-canvas-wrap{
+  flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  position:relative;padding:.5rem;
+}
+#crop-canvas{display:block;max-width:100%;max-height:100%;touch-action:none;}
+#crop-selection{
+  position:absolute;border:2px solid var(--accent);
+  box-shadow:0 0 0 9999px rgba(0,0,0,.55);
+  pointer-events:none;display:none;
+}
+.crop-bottombar{
+  display:flex;gap:.6rem;padding:.8rem 1rem;flex-shrink:0;
+  border-top:1px solid var(--border);
+}
+.crop-btn{
+  flex:1;padding:.75rem;border-radius:10px;font-size:.85rem;
+  font-family:'DM Mono',monospace;font-weight:500;cursor:pointer;border:none;
+}
+.crop-btn.cancel{background:var(--surface2);color:var(--muted);}
+.crop-btn.apply{background:var(--accent);color:#0f0f0f;}
+.crop-btn.apply:disabled{opacity:.35;cursor:default;}
 </style>
 </head>
 <body>
@@ -301,6 +336,22 @@ body{
 
 <div id="toast"></div>
 
+<!-- CROP MODAL -->
+<div id="crop-modal">
+  <div class="crop-topbar">
+    <span class="crop-topbar-title">Seleziona area etichetta</span>
+    <span class="crop-topbar-hint">✦ Trascina con il dito</span>
+  </div>
+  <div id="crop-canvas-wrap">
+    <canvas id="crop-canvas"></canvas>
+    <div id="crop-selection"></div>
+  </div>
+  <div class="crop-bottombar">
+    <button class="crop-btn cancel" id="cropCancelBtn">Annulla</button>
+    <button class="crop-btn apply" id="cropApplyBtn" disabled>✓ Applica</button>
+  </div>
+</div>
+
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -359,6 +410,18 @@ function goToTab(name) {
 document.getElementById('fileInput').addEventListener('change', e => handleFiles([...e.target.files]));
 document.getElementById('addMoreInput').addEventListener('change', e => handleFiles([...e.target.files]));
 
+// Queue of raw canvases waiting for crop selection
+let cropQueue = [];
+let cropCurrentCanvas = null; // full-res canvas being cropped
+let cropCurrentResolve = null;
+let cropDrag = null, cropIsDragging = false;
+
+const cropModal     = document.getElementById('crop-modal');
+const cropCanvas    = document.getElementById('crop-canvas');
+const cropSelection = document.getElementById('crop-selection');
+const cropApplyBtn  = document.getElementById('cropApplyBtn');
+const cropCancelBtn = document.getElementById('cropCancelBtn');
+
 async function handleFiles(files) {
   files = files.filter(f => f.type === 'application/pdf');
   if (!files.length) return;
@@ -369,22 +432,144 @@ async function handleFiles(files) {
   pb.style.width = '0%';
   const scale = parseFloat(document.getElementById('qualitySelect').value);
   let done = 0;
+
+  // Collect all raw canvases first
+  const rawCanvases = [];
   for (const file of files) {
     pl.textContent = file.name;
     const canvases = await pdfToCanvases(file, scale);
-    for (const c of canvases) {
-      const cropped = autoCropAndOrient(c);
-      pool.push({ canvas: cropped, id: idCounter++, usedInSlot: -1 });
-    }
+    canvases.forEach(c => rawCanvases.push(c));
     done++;
     pb.style.width = (done/files.length*100) + '%';
   }
-  pl.textContent = `✓ ${pool.length} etichett${pool.length!==1?'e':'a'}`;
+  pl.textContent = `${rawCanvases.length} PDF convertit${rawCanvases.length!==1?'i':'o'} — seleziona le aree`;
+
+  // Show crop modal for each canvas sequentially
+  for (let i = 0; i < rawCanvases.length; i++) {
+    pl.textContent = `Etichetta ${i+1} di ${rawCanvases.length} — seleziona area`;
+    const result = await showCropModal(rawCanvases[i], i, rawCanvases.length);
+    if (result === 'cancel') break; // user cancelled entire flow
+    const cropped = autoCropAndOrient(result);
+    pool.push({ canvas: cropped, id: idCounter++, usedInSlot: -1 });
+  }
+
+  pl.textContent = `✓ ${pool.length} etichett${pool.length!==1?'e':'a'} nel pool`;
   updatePoolBadge();
   renderPool();
   goToTab('pool');
-  showToast(`${pool.length} etichett${pool.length!==1?'e':'a'} nel pool`);
+  showToast(`${pool.length} etichett${pool.length!==1?'e':'a'} pronte`);
 }
+
+// Shows crop modal for one canvas, returns cropped sub-canvas or 'cancel'
+function showCropModal(rawCanvas, idx, total) {
+  return new Promise(resolve => {
+    cropCurrentCanvas = rawCanvas;
+    cropCurrentResolve = resolve;
+    cropDrag = null; cropIsDragging = false;
+    cropApplyBtn.disabled = true;
+    cropSelection.style.display = 'none';
+
+    // Update hint
+    document.querySelector('.crop-topbar-title').textContent =
+      total > 1 ? `Etichetta ${idx+1}/${total}` : 'Seleziona area etichetta';
+
+    // Draw full canvas into crop-canvas (fit to screen)
+    const wrap = document.getElementById('crop-canvas-wrap');
+    const maxW = wrap.clientWidth - 10;
+    const maxH = wrap.clientHeight - 10;
+    const ratio = Math.min(maxW / rawCanvas.width, maxH / rawCanvas.height);
+    cropCanvas.width  = Math.round(rawCanvas.width  * ratio);
+    cropCanvas.height = Math.round(rawCanvas.height * ratio);
+    cropCanvas.getContext('2d').drawImage(rawCanvas, 0, 0, cropCanvas.width, cropCanvas.height);
+
+    cropModal.classList.add('open');
+  });
+}
+
+// Touch/mouse events on crop canvas
+function getCropPos(e) {
+  const r = cropCanvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : e;
+  return {
+    x: clamp(src.clientX - r.left, 0, r.width),
+    y: clamp(src.clientY - r.top,  0, r.height)
+  };
+}
+
+cropCanvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const p = getCropPos(e);
+  cropDrag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+  cropIsDragging = true;
+  cropApplyBtn.disabled = true;
+  cropSelection.style.display = 'none';
+}, { passive: false });
+
+cropCanvas.addEventListener('mousedown', e => {
+  const p = getCropPos(e);
+  cropDrag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+  cropIsDragging = true;
+  cropApplyBtn.disabled = true;
+  cropSelection.style.display = 'none';
+});
+
+function onCropMove(e) {
+  if (!cropIsDragging || !cropDrag) return;
+  const p = getCropPos(e);
+  cropDrag.x1 = p.x; cropDrag.y1 = p.y;
+  updateCropSelection();
+}
+
+function onCropEnd() {
+  if (!cropIsDragging) return;
+  cropIsDragging = false;
+  const w = Math.abs(cropDrag.x1 - cropDrag.x0);
+  const h = Math.abs(cropDrag.y1 - cropDrag.y0);
+  cropApplyBtn.disabled = (w < 10 || h < 10);
+}
+
+cropCanvas.addEventListener('touchmove',  e => { e.preventDefault(); onCropMove(e); }, { passive: false });
+cropCanvas.addEventListener('touchend',   onCropEnd);
+cropCanvas.addEventListener('mousemove',  onCropMove);
+cropCanvas.addEventListener('mouseup',    onCropEnd);
+
+function updateCropSelection() {
+  if (!cropDrag) return;
+  const canvasRect = cropCanvas.getBoundingClientRect();
+  const wrapRect   = document.getElementById('crop-canvas-wrap').getBoundingClientRect();
+  const offX = canvasRect.left - wrapRect.left;
+  const offY = canvasRect.top  - wrapRect.top;
+  const x = Math.min(cropDrag.x0, cropDrag.x1);
+  const y = Math.min(cropDrag.y0, cropDrag.y1);
+  const w = Math.abs(cropDrag.x1 - cropDrag.x0);
+  const h = Math.abs(cropDrag.y1 - cropDrag.y0);
+  cropSelection.style.display = 'block';
+  cropSelection.style.left   = (offX + x) + 'px';
+  cropSelection.style.top    = (offY + y) + 'px';
+  cropSelection.style.width  = w + 'px';
+  cropSelection.style.height = h + 'px';
+}
+
+cropApplyBtn.addEventListener('click', () => {
+  if (!cropDrag || !cropCurrentCanvas) return;
+  // Scale selection coords from display canvas → original canvas
+  const scaleX = cropCurrentCanvas.width  / cropCanvas.width;
+  const scaleY = cropCurrentCanvas.height / cropCanvas.height;
+  const x = Math.round(Math.min(cropDrag.x0, cropDrag.x1) * scaleX);
+  const y = Math.round(Math.min(cropDrag.y0, cropDrag.y1) * scaleY);
+  const w = Math.round(Math.abs(cropDrag.x1 - cropDrag.x0) * scaleX);
+  const h = Math.round(Math.abs(cropDrag.y1 - cropDrag.y0) * scaleY);
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  out.getContext('2d').drawImage(cropCurrentCanvas, x, y, w, h, 0, 0, w, h);
+  cropModal.classList.remove('open');
+  cropCurrentResolve(out);
+});
+
+cropCancelBtn.addEventListener('click', () => {
+  cropModal.classList.remove('open');
+  cropCurrentResolve('cancel');
+});
 
 async function pdfToCanvases(file, scale) {
   const ab = await file.arrayBuffer();
@@ -404,6 +589,7 @@ async function pdfToCanvases(file, scale) {
 }
 
 // ── AUTO CROP + ORIENT ────────────────────────────────────────
+// Takes a pre-selected sub-canvas, trims remaining white edges, orients portrait
 function autoCropAndOrient(canvas) {
   const thresh = parseInt(document.getElementById('threshSelect').value);
   const ctx = canvas.getContext('2d');
@@ -422,6 +608,7 @@ function autoCropAndOrient(canvas) {
   const cw=right-left+1,ch=bottom-top+1;
   const out=document.createElement('canvas');out.width=cw;out.height=ch;
   out.getContext('2d').drawImage(canvas,left,top,cw,ch,0,0,cw,ch);
+  // Rotate to portrait if landscape
   if(out.width>out.height) return rotateCanvas(out,90);
   return out;
 }
