@@ -374,9 +374,14 @@ async function pdfToCanvases(file,scale){
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i);
     const vp=page.getViewport({scale});
-    const c=document.createElement('canvas'); c.width=vp.width; c.height=vp.height;
-    const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
-    await page.render({canvasContext:ctx,viewport:vp}).promise;
+    const c=document.createElement('canvas');
+    c.width=vp.width; c.height=vp.height;
+    const ctx=c.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+    const renderTask=page.render({canvasContext:ctx,viewport:vp});
+    await renderTask.promise;
+    // Release page resources
+    page.cleanup();
     list.push(c);
   }
   return list;
@@ -394,16 +399,20 @@ function showCropModal(raw){
   return new Promise(res=>{
     cropResolve=res; cropSrc=raw; cropDrag=null; cropDragging=false;
     cropApply.disabled=true; cropSel.style.display='none';
-    const wrap=document.getElementById('crop-wrap');
-    // Use rAF to ensure wrap has proper dimensions
-    requestAnimationFrame(()=>{
-      const maxW=wrap.clientWidth-12, maxH=wrap.clientHeight-12;
-      const ratio=Math.min(maxW/raw.width, maxH/raw.height, 1);
+    // Open modal first so wrap has real dimensions, then draw
+    cropModal.classList.add('open');
+    // Two rAFs: first lets browser layout, second lets it paint
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const wrap=document.getElementById('crop-wrap');
+      const maxW=wrap.clientWidth-16, maxH=wrap.clientHeight-16;
+      if(!maxW||!maxH){ cropModal.classList.remove('open'); res(raw); return; }
+      const ratio=Math.min(maxW/raw.width, maxH/raw.height);
       cropCv.width=Math.round(raw.width*ratio);
       cropCv.height=Math.round(raw.height*ratio);
+      cropCv.style.width=cropCv.width+'px';
+      cropCv.style.height=cropCv.height+'px';
       cropCv.getContext('2d').drawImage(raw,0,0,cropCv.width,cropCv.height);
-      cropModal.classList.add('open');
-    });
+    }));
   });
 }
 
@@ -411,11 +420,12 @@ function getCropPos(e){
   const r=cropCv.getBoundingClientRect();
   const src=e.touches?e.touches[0]:e;
   return{
-    x:Math.max(0,Math.min(src.clientX-r.left,r.width)),
-    y:Math.max(0,Math.min(src.clientY-r.top,r.height))
+    x:Math.max(0,Math.min(src.clientX-r.left,cropCv.width)),
+    y:Math.max(0,Math.min(src.clientY-r.top,cropCv.height))
   };
 }
 function startCrop(e){
+  if(e.target!==cropCv)return;
   e.preventDefault();
   const p=getCropPos(e);
   cropDrag={x0:p.x,y0:p.y,x1:p.x,y1:p.y};
@@ -428,19 +438,24 @@ function moveCrop(e){
   cropDrag.x1=p.x; cropDrag.y1=p.y;
   updateSel();
 }
-function endCrop(){
+function endCrop(e){
   if(!cropDragging)return;
   cropDragging=false;
   const w=Math.abs(cropDrag.x1-cropDrag.x0), h=Math.abs(cropDrag.y1-cropDrag.y0);
   cropApply.disabled=(w<10||h<10);
 }
 
-cropCv.addEventListener('mousedown',startCrop);
-window.addEventListener('mousemove',e=>{if(cropDragging)moveCrop(e);});
-window.addEventListener('mouseup',endCrop);
-cropCv.addEventListener('touchstart',startCrop,{passive:false});
-cropCv.addEventListener('touchmove',moveCrop,{passive:false});
-cropCv.addEventListener('touchend',endCrop);
+// Attach all drag events to the wrap div for reliable PC + touch coverage
+const cropWrapEl=document.getElementById('crop-wrap');
+cropWrapEl.style.userSelect='none';
+cropWrapEl.style.webkitUserSelect='none';
+cropWrapEl.addEventListener('mousedown',startCrop);
+cropWrapEl.addEventListener('mousemove',moveCrop);
+cropWrapEl.addEventListener('mouseup',endCrop);
+cropWrapEl.addEventListener('mouseleave',endCrop);
+cropWrapEl.addEventListener('touchstart',startCrop,{passive:false});
+cropWrapEl.addEventListener('touchmove',moveCrop,{passive:false});
+cropWrapEl.addEventListener('touchend',endCrop);
 
 function updateSel(){
   if(!cropDrag)return;
