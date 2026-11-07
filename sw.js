@@ -5,7 +5,7 @@ const BASE = [
   './', './index.html', './manifest.json',
   './css/app.css?v=2.0.0', './js/app.js?v=2.0.0',
   './js/foglio.js', './js/sorgente.js', './js/rileva.js', './js/esporta.js', './js/archivio.js',
-  './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
+  './icons/favicon.svg', './icons/favicon-32.png', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
 ];
 const ESTERNI = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',

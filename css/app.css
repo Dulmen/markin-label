@@ -141,6 +141,8 @@ svg { display: block; }
 .toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toast button { height: 34px; padding: 0 12px; border-radius: var(--r-medio); font-weight: 600; color: var(--accent); }
 .toast.solo { padding-right: 16px; }
+/* col menu Altro aperto l'avviso sale sopra il menu, così Annulla resta raggiungibile */
+#menu:not([hidden]) ~ .toast { bottom: calc(max(24px, calc(env(safe-area-inset-bottom) + 12px)) + 66px + 200px); }
 
 /* strato di volo: pagine che arrivano, etichette in volo e quella presa col dito */
 .strato { position: fixed; inset: 0; z-index: 15; pointer-events: none; }

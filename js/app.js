@@ -24,7 +24,13 @@ const telefono = () => matchMedia('(pointer: coarse)').matches;
 const safari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
 const nuovoId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const attesa = (ms) => new Promise((ok) => setTimeout(ok, ms));
-const nome = (e) => [e.corriere, e.citta].filter(Boolean).join(' · ') || `Pagina ${e.pagina}`;
+// «InPost · Limoges»; senza testo nel PDF, il nome del file se l'ha scelto una persona
+const nome = (e) => {
+  const dati = [e.corriere, e.citta].filter(Boolean).join(' · ');
+  if (dati) return dati;
+  const base = (e.fileNome || '').replace(/\.pdf$/i, '').trim();
+  return base && !/^[a-z0-9_-]{16,}$/i.test(base) ? base : 'Etichetta';
+};
 
 // ── stato ─────────────────────────────────────────────────────────
 const S = {
@@ -115,7 +121,9 @@ function disegnaBarra() {
   ui.menu.querySelector('[data-fa="svuota"]').hidden = ui.svuota.hidden;
   ui.menu.querySelector('[data-fa="nuovo"]').hidden = ui.nuovo.hidden;
   ui.menu.querySelector('[data-fa="ristampa"]').hidden = ui.ristampa.hidden;
-  ui.altro.hidden = ui.svuota.hidden && ui.nuovo.hidden && ui.ristampa.hidden;
+  // in una finestra stretta del computer Scarica sta nel menu; sul telefono basta la condivisione
+  ui.menu.querySelector('[data-fa="scarica"]').hidden = !ci || telefono();
+  ui.altro.hidden = [...ui.menu.children].every((b) => b.hidden);
   if (ui.altro.hidden) ui.menu.hidden = true;
 }
 
@@ -187,14 +195,24 @@ function avviso(testo, annulla, durata = 6000) {
 function chiudiToast() { ui.toast.classList.remove('su'); azioneToast = null; }
 ui.toast.querySelector('button').addEventListener('click', () => { const a = azioneToast; chiudiToast(); a?.(); });
 
+// Si annulla solo l'ultima azione: ogni voce rimette l'istantanea presa prima di farla,
+// quindi annullarne una vecchia butterebbe via il lavoro fatto dopo.
 const storia = [];
 function fatto(testo, annulla, durata) {
-  const voce = () => { const i = storia.indexOf(voce); if (i >= 0) storia.splice(i, 1); annulla(); };
+  const voce = { annulla };
   storia.push(voce);
   if (storia.length > 30) storia.shift();
-  avviso(testo, voce, durata);
+  if (testo) avviso(testo, () => annullaVoce(voce), durata);
+  else if (azioneToast) chiudiToast(); // l'Annulla dell'avviso di prima non vale più
 }
-function annullaUltimo() { const v = storia.pop(); if (v) { chiudiToast(); v(); } }
+function annullaVoce(voce) {
+  if (storia[storia.length - 1] !== voce) return;
+  storia.pop();
+  chiudiToast();
+  voce.annulla();
+}
+function annullaUltimo() { const v = storia[storia.length - 1]; if (v) annullaVoce(v); }
+function dimenticaStoria() { storia.length = 0; if (azioneToast) chiudiToast(); }
 
 const istantanea = () => ({ etichette: S.etichette.map((e) => ({ ...e })), usati: new Set(S.usati) });
 function ripristina(snap) {
@@ -210,7 +228,9 @@ async function aggiungiFile(lista) {
   if (pdf.length < tutti.length) avviso(tutti.length - pdf.length === 1 ? 'Un file non è un PDF' : `${tutti.length - pdf.length} file non sono PDF`);
   if (!pdf.length) return;
   chiudiChip();
+  dimenticaStoria(); // etichette nuove: gli annulla di prima rimetterebbero un foglio senza di loro
   inArrivo += pdf.length;
+  const giro = { primo: null };
   for (const f of pdf) {
     const bytes = new Uint8Array(await f.arrayBuffer());
     const fid = nuovoId();
@@ -220,9 +240,9 @@ async function aggiungiFile(lista) {
     let vuote = 0;
     try {
       await leggiPdf(bytes, {
-        onPagina: async (p, n, tot) => {
+        onPagina: async (p) => {
           if (p.vuota) { vuote++; return; }
-          await arriva(fid, p, tot);
+          await arriva(fid, f.name, p, giro);
         },
       });
       if (vuote) avviso(vuote === 1 ? `${f.name}: una pagina vuota, saltata` : `${f.name}: ${vuote} pagine vuote, saltate`);
@@ -233,12 +253,14 @@ async function aggiungiFile(lista) {
     inArrivo--;
   }
   await coda;
+  // finito il giro si torna al primo foglio dove sono arrivate etichette nuove
+  if (giro.primo !== null && !inArrivo && giro.primo < ui.fogli.children.length && correnteFoglio() !== giro.primo) vaiA(giro.primo);
 }
 
-async function arriva(fid, p) {
+async function arriva(fid, fileNome, p, giro) {
   const blob = await new Promise((ok) => p.anteprima.toBlob(ok, 'image/png'));
   const e = {
-    id: nuovoId(), file: fid, pagina: p.numero,
+    id: nuovoId(), file: fid, fileNome, pagina: p.numero,
     riqN: p.riqN, riqAuto: p.riqN, box: p.box, boxAuto: p.box,
     rotPagina: p.rotPagina, rot: p.rot, rotAuto: p.rot,
     corriere: p.corriere, citta: p.citta,
@@ -246,6 +268,7 @@ async function arriva(fid, p) {
     ...primoLibero(S.etichette, S.usati),
   };
   S.etichette.push(e);
+  if (giro.primo === null || e.foglio < giro.primo) giro.primo = e.foglio;
   disegna();
   const n = nodi.get(e.id);
   n.classList.add('via');
@@ -273,12 +296,17 @@ function miniPagina(canvas) {
 
 // La pagina compare sul tavolo, il filo lilla taglia l'etichetta, l'etichetta vola nel suo spazio.
 async function volo(e, paginaCanvas) {
-  const n = nodi.get(e.id);
-  if (!n) return { prossima: Promise.resolve() };
+  const salta = { prossima: Promise.resolve() };
+  // l'etichetta può essere stata tolta (Svuota, annulla) mentre aspettava il suo turno
+  const viva = () => { const n = nodi.get(e.id); return n?.isConnected && trova(e.id) ? n : null; };
+  if (!viva()) return salta;
   const veloce = inArrivo > 4 ? 0.65 : 1;
-  if (correnteFoglio() !== e.foglio) { vaiA(e.foglio); await scrollFermo(); }
+  const foglio = trova(e.id).foglio;
+  if (correnteFoglio() !== foglio) { vaiA(foglio); await scrollFermo(); }
+  const n = viva();
+  if (!n) return salta;
   const fin = rettangoloImg(e, n);
-  const fo = ui.fogli.children[e.foglio].getBoundingClientRect();
+  const fo = n.closest('.foglio').getBoundingClientRect();
   const stretto = innerWidth <= 700;
   const ph = stretto ? Math.min(fo.height * 0.42, 230) : Math.min(fo.height * 0.66, 520);
   const pw = ph / 1.4143;
@@ -383,6 +411,8 @@ function scrollFermo() {
 function staccaRiattacca(f, s) {
   const k = f * 4 + s, sp = spazioEl(f, s);
   if (inPosto(f, s)) return;
+  chiudiChip();
+  const snap = istantanea();
   const stacca = !S.usati.has(k);
   const buccia = document.createElement('div');
   buccia.className = 'buccia';
@@ -391,6 +421,7 @@ function staccaRiattacca(f, s) {
   const posata = { transform: 'none', opacity: 1 };
   if (stacca) S.usati.add(k); else S.usati.delete(k);
   disegna();
+  fatto(null, () => ripristina(snap));
   if (stacca) {
     buccia.animate([posata, { offset: 0.35, transform: 'translate3d(2%, -2%, 20px) rotate3d(-1, 1, 0, 26deg)', opacity: 1 }, via], { duration: 460, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'both' }).finished.then(() => buccia.remove());
   } else {
@@ -428,7 +459,15 @@ chip.addEventListener('click', (ev) => {
   if (a === 'ritaglia') apriEditor(e);
   if (a === 'togli') togliEtichetta(e);
 });
-function scegli(id) { S.scelta = S.scelta === id ? null : id; disegnaChip(); }
+// un doppio click o doppio tocco non apre e richiude il chip
+let ultimaScelta = { id: null, t: 0 };
+function scegli(id) {
+  const ora = performance.now();
+  if (id === ultimaScelta.id && ora - ultimaScelta.t < 350) return;
+  ultimaScelta = { id, t: ora };
+  S.scelta = S.scelta === id ? null : id;
+  disegnaChip();
+}
 function chiudiChip() { if (S.scelta) { S.scelta = null; disegnaChip(); } }
 function disegnaChip() {
   for (const [id, n] of nodi) n.classList.toggle('scelta', id === S.scelta);
@@ -445,20 +484,36 @@ function disegnaChip() {
     chip.classList.add('armando');
     setTimeout(() => chip.classList.remove('armando'), 260);
   }
+  // un'etichetta mezza fuori schermo: il chip resta dentro la finestra
+  chip.style.marginLeft = '';
+  const r = chip.getBoundingClientRect();
+  const dx = r.left < 8 ? 8 - r.left : r.right > innerWidth - 8 ? innerWidth - 8 - r.right : 0;
+  if (dx) chip.style.marginLeft = dx + 'px';
 }
 
+// Un capovolgimento alla volta per etichetta: due click di fila partirebbero dalla stessa
+// immagine e l'anteprima non direbbe più il verso che andrà in stampa.
+const girando = new Set();
 async function capovolgi(e) {
-  const img = await caricaImg(e.url);
-  const c = document.createElement('canvas');
-  c.width = img.naturalWidth; c.height = img.naturalHeight;
-  const ctx = c.getContext('2d');
-  ctx.translate(c.width, c.height); ctx.rotate(Math.PI); ctx.drawImage(img, 0, 0);
-  const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
-  const prima = { rot: e.rot, blob: e.blob, url: e.url };
-  Object.assign(e, { rot: (e.rot + 180) % 360, blob, url: URL.createObjectURL(blob) });
-  disegna();
-  nodi.get(e.id)?.firstChild.animate([{ transform: 'rotate(-180deg) scale(.96)' }, { transform: 'none' }], { duration: 560, easing: MOLLA });
-  fatto(`Capovolta ${nome(e)}`, () => { Object.assign(e, prima); disegna(); });
+  if (girando.has(e.id)) return;
+  girando.add(e.id);
+  try {
+    const img = await caricaImg(e.url);
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const ctx = c.getContext('2d');
+    ctx.translate(c.width, c.height); ctx.rotate(Math.PI); ctx.drawImage(img, 0, 0);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    const vivo = trova(e.id);
+    if (!vivo) return;
+    const snap = istantanea();
+    Object.assign(vivo, { rot: (vivo.rot + 180) % 360, blob, url: URL.createObjectURL(blob) });
+    disegna();
+    nodi.get(vivo.id)?.firstChild.animate([{ transform: 'rotate(-180deg) scale(.96)' }, { transform: 'none' }], { duration: 560, easing: MOLLA });
+    fatto(`Capovolta ${nome(vivo)}`, () => ripristina(snap));
+  } finally {
+    girando.delete(e.id);
+  }
 }
 const caricaImg = (src) => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = src; });
 
@@ -572,6 +627,8 @@ function lasciaPresa(ev) {
   const sotto = spazioSotto(p.x, p.y);
   segnaBersaglio(null);
   if (!e) return p.g.remove();
+  // lasciata sopra la barra, la testata o un avviso: torna al suo posto, non si toglie
+  if (document.elementsFromPoint(p.x, p.y).some((el) => el.closest?.('.barra, .testa, #toast, #menu'))) return atterra(e, p.g);
   if (!sotto) {
     // fuori dai fogli: l'etichetta si toglie
     p.g.animate([{ opacity: 1 }, { opacity: 0, transform: `${p.g.style.transform} translateY(40px) rotate(8deg) scale(.96)` }], { duration: 280, easing: USCITA, fill: 'both' }).finished.then(() => p.g.remove());
@@ -587,8 +644,10 @@ function lasciaPresa(ev) {
     conFlip(() => {
       Object.assign(e, { foglio: f, spazio: s });
       if (altra) Object.assign(altra, da);
+      compatta(S.etichette, S.usati); // niente fogli vuoti in mezzo
     }, { salta: e.id });
     if (altra) fatto(`Scambiate ${SPAZI[da.spazio].nome} e ${SPAZI[s].nome}`, () => ripristina(snap), 3500);
+    else fatto(null, () => ripristina(snap));
   }
   atterra(e, p.g);
 }
@@ -639,9 +698,13 @@ ui.fogli.addEventListener('keydown', (ev) => {
 // ── ritaglio a mano ───────────────────────────────────────────────
 const ed = { el: $('#editor'), velo: $('#velo'), tela: $('#tela'), nome: $('#editorNome'), mini: $('#editorMini') };
 let lavoro = null; // { e, canvas, vp, r: {x,y,w,h} normalizzato, rot, box }
+let editorApertoAlle = 0;
 async function apriEditor(e) {
   chiudiChip();
   ed.nome.textContent = nome(e);
+  // il secondo click di un doppio click su Ritaglia cade sul velo: lo assorbe senza richiudere
+  // (senza velo arriverebbe all'etichetta sotto e riaprirebbe il chip)
+  editorApertoAlle = performance.now();
   ed.velo.hidden = false;
   ed.el.hidden = false;
   ed.el.classList.remove('esce');
@@ -700,13 +763,16 @@ function disegnaRiquadro() {
 ed.tela.addEventListener('pointerdown', (ev) => {
   const pag = ed.tela.querySelector('.pagina');
   if (!lavoro || !pag) return;
-  ev.preventDefault();
   const b = pag.getBoundingClientRect();
-  const p0 = { x: (ev.clientX - b.left) / b.width, y: (ev.clientY - b.top) / b.height };
   const m = ev.target.closest('.maniglia')?.dataset.m || (ev.target.closest('.riquadro') ? 'sposta' : 'nuovo');
+  // un riquadro nuovo si disegna solo partendo dalla pagina, non dal grigio intorno
+  const fuori = ev.clientX < b.left || ev.clientX > b.right || ev.clientY < b.top || ev.clientY > b.bottom;
+  if (m === 'nuovo' && fuori) return;
+  ev.preventDefault();
+  const lim = (v) => Math.max(0, Math.min(1, v));
+  const p0 = { x: lim((ev.clientX - b.left) / b.width), y: lim((ev.clientY - b.top) / b.height) };
   const r0 = { ...lavoro.r };
   const minW = 10 / 210, minH = 10 / 297;
-  const lim = (v) => Math.max(0, Math.min(1, v));
   ed.tela.setPointerCapture(ev.pointerId);
   const muovi = (e2) => {
     const p = { x: lim((e2.clientX - b.left) / b.width), y: lim((e2.clientY - b.top) / b.height) };
@@ -718,6 +784,8 @@ ed.tela.addEventListener('pointerdown', (ev) => {
       y = Math.max(0, Math.min(1 - h, r0.y + dy));
       lavoro.r = { x, y, w, h };
     } else if (m === 'nuovo') {
+      // un tocco senza trascinare non cambia il ritaglio
+      if (Math.hypot(e2.clientX - ev.clientX, e2.clientY - ev.clientY) < 6) return;
       lavoro.r = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.max(minW, Math.abs(p.x - p0.x)), h: Math.max(minH, Math.abs(p.y - p0.y)) };
       lavoro.r.w = Math.min(lavoro.r.w, 1 - lavoro.r.x);
       lavoro.r.h = Math.min(lavoro.r.h, 1 - lavoro.r.y);
@@ -734,7 +802,6 @@ ed.tela.addEventListener('pointerdown', (ev) => {
   ed.tela.addEventListener('pointermove', muovi);
   ed.tela.addEventListener('pointerup', su);
   ed.tela.addEventListener('pointercancel', su);
-  if (m === 'nuovo') muovi(ev);
 });
 $('#editorAuto').addEventListener('click', () => { if (!lavoro) return; lavoro.r = { ...lavoro.e.riqAuto }; lavoro.rot = lavoro.e.rotAuto; disegnaRiquadro(); anteprimaEditor(); });
 $('#editorPagina').addEventListener('click', () => { if (!lavoro) return; lavoro.r = { x: 0, y: 0, w: 1, h: 1 }; disegnaRiquadro(); anteprimaEditor(); });
@@ -755,12 +822,14 @@ $('#editorFatto').addEventListener('click', async () => {
   piccolo.height = Math.round(c.height * k);
   piccolo.getContext('2d').drawImage(c, 0, 0, piccolo.width, piccolo.height);
   const blob = await new Promise((ok) => piccolo.toBlob(ok, 'image/png'));
-  const prima = { riqN: e.riqN, box: e.box, rot: e.rot, blob: e.blob, url: e.url, w: e.w, h: e.h };
-  Object.assign(e, { riqN: { ...r }, box: boxDaRiq(vp, px), rot, blob, url: URL.createObjectURL(blob), w: piccolo.width, h: piccolo.height });
+  const vivo = trova(e.id);
   chiudiEditor();
+  if (!vivo) return;
+  const snap = istantanea();
+  Object.assign(vivo, { riqN: { ...r }, box: boxDaRiq(vp, px), rot, blob, url: URL.createObjectURL(blob), w: piccolo.width, h: piccolo.height });
   disegna();
-  nodi.get(e.id)?.firstChild.animate([{ opacity: 0, transform: 'scale(.97)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: MOLLA });
-  fatto(`Ritagliata ${nome(e)}`, () => { Object.assign(e, prima); disegna(); });
+  nodi.get(vivo.id)?.firstChild.animate([{ opacity: 0, transform: 'scale(.97)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: MOLLA });
+  fatto(`Ritagliata ${nome(vivo)}`, () => ripristina(snap));
 });
 function chiudiEditor() {
   if (ed.el.hidden) return;
@@ -774,7 +843,7 @@ function chiudiEditor() {
   });
 }
 $('#editorChiudi').addEventListener('click', chiudiEditor);
-ed.velo.addEventListener('click', chiudiEditor);
+ed.velo.addEventListener('click', () => { if (performance.now() - editorApertoAlle > 450) chiudiEditor(); });
 
 // ── stampa ────────────────────────────────────────────────────────
 let pronto = null, preparaTimer = 0;
@@ -801,8 +870,12 @@ function lavora(btn, si) {
   if (!si) a?.remove();
 }
 
+// Una stampa alla volta: un doppio click (o ⌘P due volte) non apre due dialoghi
+// e non registra due stampe.
+let stampando = false;
 async function stampa(modo) {
-  if (!S.etichette.length || ui.stampa.classList.contains('lavora')) return;
+  if (!S.etichette.length || stampando) return;
+  stampando = true;
   chiudiChip();
   const condividi = telefono() && navigator.canShare;
   let p = pronto?.firma === firma() ? pronto : null;
@@ -810,11 +883,17 @@ async function stampa(modo) {
   if (!p && modo === 'stampa' && !condividi && safari) finestra = window.open('', '_blank');
   if (!p) {
     lavora(ui.stampa, true);
-    try { p = await prepara(); } catch (err) { console.warn(err); avviso('Non riesco a creare il PDF'); finestra?.close(); return; } finally { lavora(ui.stampa, false); }
+    try { p = await prepara(); } catch (err) {
+      console.warn(err);
+      avviso('Non riesco a creare il PDF');
+      finestra?.close();
+      stampando = false;
+      return;
+    } finally { lavora(ui.stampa, false); }
   }
   const file = new File([p.bytes], p.nome, { type: 'application/pdf' });
-  if (await consegna(file, modo, finestra) === false) return;
-  registraStampa(p);
+  if (await consegna(file, modo, finestra) === false) { stampando = false; return; }
+  registraStampa(p, () => (stampando = false));
 }
 
 // Telefono: il foglio di condivisione (Stampa, Salva su File). Computer: stampa o scarica.
@@ -852,37 +931,48 @@ function scaricaFile(file) {
 }
 
 // Dopo la stampa le etichette si staccano dal foglio: restano gli spazi usati per la prossima volta.
-function registraStampa(p) {
+function registraStampa(p, finito) {
   const snap = istantanea(), ultimaPrima = S.ultimaStampa;
   const quante = S.etichette.length;
   const dopo = usatiDopoStampa(S.etichette, S.usati);
   S.ultimaStampa = { nome: p.nome, bytes: p.bytes };
   archivio.scrivi('stato', 'ultimaStampa', S.ultimaStampa);
   const lista = [...nodi.values()];
-  lista.forEach((n, i) => n.animate([
+  const animazioni = lista.map((n, i) => n.animate([
     { transform: 'none', opacity: 1 },
     { transform: 'translate3d(10%, -8%, 0) rotate(-5deg) scale(1.02)', opacity: 0 },
   ], { duration: 340, delay: i * 70, easing: USCITA, fill: 'both' }));
-  setTimeout(() => {
+  // il foglio si svuota quando le etichette si sono staccate; un Annulla prima di allora
+  // ferma il distacco e lascia tutto com'era
+  let svuotato = false;
+  const timer = setTimeout(() => {
+    svuotato = true;
     S.etichette = [];
     S.usati = dopo;
     disegna();
     vaiA(0, false);
-    lista.forEach((n) => n.getAnimations().forEach((a) => a.cancel()));
+    animazioni.forEach((a) => a.cancel());
+    finito?.();
   }, 340 + lista.length * 70);
   const liberi = 4 - dopo.size;
   const testo = dopo.size === 0 ? `Stampate ${quante} · si riparte da un foglio nuovo` : `Stampate ${quante} · ${liberi === 1 ? 'resta 1 spazio' : `restano ${liberi} spazi`}`;
   fatto(testo, () => {
+    clearTimeout(timer);
+    animazioni.forEach((a) => a.cancel());
     S.ultimaStampa = ultimaPrima;
     if (ultimaPrima) archivio.scrivi('stato', 'ultimaStampa', ultimaPrima); else archivio.togli('stato', 'ultimaStampa');
-    ripristina(snap);
+    if (svuotato) ripristina(snap); else { disegna(); finito?.(); }
   }, 9000);
 }
 
+// Ristampa l'ultimo PDF come lo si era stampato: dialogo di stampa sul computer, condivisione sul telefono.
+let ristampando = false;
 async function ristampa() {
-  if (!S.ultimaStampa) return;
+  if (!S.ultimaStampa || ristampando) return;
+  ristampando = true;
+  const finestra = !(telefono() && navigator.canShare) && safari ? window.open('', '_blank') : null;
   const file = new File([S.ultimaStampa.bytes], S.ultimaStampa.nome, { type: 'application/pdf' });
-  await consegna(file, telefono() ? 'stampa' : 'scarica', null);
+  try { await consegna(file, 'stampa', finestra); } finally { setTimeout(() => (ristampando = false), 800); }
 }
 
 // ── azioni della barra ────────────────────────────────────────────
@@ -924,6 +1014,7 @@ ui.menu.addEventListener('click', (ev) => {
   if (a === 'svuota') svuota();
   if (a === 'nuovo') foglioNuovo();
   if (a === 'ristampa') ristampa();
+  if (a === 'scarica') stampa('scarica');
 });
 addEventListener('pointerdown', (ev) => { if (!ui.menu.hidden && !ev.target.closest('#menu, #altro')) ui.menu.hidden = true; });
 
@@ -946,9 +1037,11 @@ addEventListener('keydown', (ev) => {
   const cmd = ev.metaKey || ev.ctrlKey;
   if (!ed.el.hidden) {
     if (ev.key === 'Escape') chiudiEditor();
-    if (ev.key === 'Enter' && !ev.target.closest?.('button')) $('#editorFatto').click();
+    // Invio conferma sempre, anche col fuoco su Ruota o Automatico (lì basta lo Spazio)
+    if (ev.key === 'Enter') { ev.preventDefault(); $('#editorFatto').click(); }
     return;
   }
+  if (ev.key === 'Escape' && presa?.attiva) { annullaPresa(); return; }
   if (cmd && ev.key.toLowerCase() === 'p') { ev.preventDefault(); stampa('stampa'); }
   else if (cmd && ev.key.toLowerCase() === 's') { ev.preventDefault(); stampa('scarica'); }
   else if (cmd && ev.key.toLowerCase() === 'o') { ev.preventDefault(); ui.file.click(); }

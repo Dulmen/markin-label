@@ -23,7 +23,7 @@ Markin trasforma i PDF delle etichette scaricati da Vinted nel foglio da stampar
 | Svuota, Ristampa | tolgono tutte le etichette; ristampano l'ultimo PDF |
 | Tastiera | ⌘O aggiungi, ⌘P stampa, ⌘S scarica, ⌘Z annulla, ← → fogli, Backspace toglie l'etichetta scelta, Esc |
 
-Dopo Stampa o Scarica le etichette si staccano dal foglio e restano segnati come usati gli spazi dell'ultimo foglio stampato: alla volta dopo l'app sa già quali adesivi sono rimasti. Ogni azione che toglie qualcosa ha «Annulla» nell'avviso.
+Dopo Stampa o Scarica le etichette si staccano dal foglio e restano segnati come usati gli spazi dell'ultimo foglio stampato: alla volta dopo l'app sa già quali adesivi sono rimasti. Ogni azione che toglie qualcosa ha «Annulla» nell'avviso. Annulla e ⌘Z disfano sempre e solo l'ultima azione (anche spostamenti e spazi staccati); quando arrivano PDF nuovi gli annulla di prima si chiudono, così non si perde mai lavoro fatto dopo.
 
 ## File
 
@@ -37,7 +37,8 @@ Dopo Stampa o Scarica le etichette si staccano dal foglio e restano segnati come
 | `js/rileva.js` | trovare l'etichetta nella pagina, il verso del testo, corriere e città |
 | `js/esporta.js` | il PDF finale con pdf-lib 1.17.1 |
 | `js/archivio.js` | IndexedDB (`markin`: `file`, `etichette`, `stato`) |
-| `sw.js`, `manifest.json`, `icons/` | app installabile e senza rete |
+| `sw.js`, `manifest.json` | app installabile e senza rete |
+| `icons/` | icona «Taglio» (scelta da Andrea il 07/11/2026 fra tre direzioni, nella famiglia di Cucitura e Vetro): il filo «taglia qui» attorno all'etichetta che si ferma nel punto lilla. Sorgente `icon.svg`; le PNG (180, 192, 512, 1024, mascherabile, favicon) si rifanno con `~/dev/_tools/markin-prove/icona/applica.mjs` |
 | `DESIGN.md`, `.impeccable/config.json` | sistema visivo in formato Google (lint pulito) ed eccezione del rilevatore sul greige |
 
 ## Come trova l'etichetta
@@ -86,16 +87,25 @@ Il banco di prova sta **fuori dal repo**, perché usa i PDF veri con indirizzi d
 | `stampa.mjs` | cinque etichette su due fogli, click vero su Scarica, PDF ridisegnato con le fustelle (`vedi.html`) |
 | `interazioni.mjs` | mouse vero: scambio, togli e annulla, stacca e riattacca, chip, capovolgi, ⌘Z, ritaglio con la maniglia |
 | `tocco.mjs` | telefono: tocchi, pressione lunga e trascina, strisciata fra i fogli (Chrome con eventi touch veri), WebKit formato iPhone, Stampa con la condivisione |
+| `cala.mjs` | PDF trascinati sulla finestra (evento drop vero), Esc durante una presa |
+| `stampa-desk.mjs --vero` | Stampa dal computer in un Chrome con finestra (in headless il dialogo di stampa manda in crash la pagina) e memoria dopo un ricaricamento |
+| `sw-prova.mjs` | aggiornamento da chi ha la v1 installata, poi apertura senza rete |
+| `review/` | la revisione indipendente del 07/11 (t1-t14): doppi click, annulla, ritaglio, fogli, WebKit, finestra stretta |
+| `video.mjs` | i video dimostrativi in `video/` |
 
 Server locali: configurazioni `markin-label` (porta 8693) e `markin-prove` (8694) in `.claude/launch.json` del vault.
 
 Non provato: la stampa vera sulla stampante di Andrea e il foglio di condivisione su un iPhone vero.
+
+La revisione indipendente del 07/11, fatta con click e tocchi veri, aveva trovato nove difetti, tutti chiusi e riverificati coi suoi script. Il più grave: ⌘Z subito dopo Stampa cancellava le etichette. Gli altri: annulla che buttava lavoro fatto dopo, doppi click su Capovolgi, Stampa e Ritaglia, ritaglio rotto da un click accanto alla pagina, foglio vuoto in mezzo dopo un trascinamento, Invio dopo Ruota.
 
 ## Limiti noti
 
 - Un PDF fatto solo d'immagine non ha testo: niente corriere né città (l'etichetta si chiama «Pagina 1») e il verso segue la forma.
 - La stampa dal telefono passa da AirPrint, che può adattare la pagina ai margini della stampante come faceva già con la v1.
 - Le misure del foglio sono quelle della v1: se un giorno le etichette uscissero spostate, si correggono in `SPAZI`.
+- Stampa manda sempre tutti i fogli. Per rimandare un'etichetta la si toglie e quando serve si ricarica il suo PDF.
+- Sull'iPhone l'icona resta quella del giorno in cui l'app è stata aggiunta alla schermata Home: per vedere quella nuova si toglie e si aggiunge di nuovo.
 
 ## Pubblicare una modifica
 
@@ -106,4 +116,4 @@ Non provato: la stampa vera sulla stampante di Andrea e il foglio di condivision
 ## Storia
 
 - **v1** (marzo 2026): carica PDF, ritaglio a mano pagina per pagina, rifilo del bianco, rotazione in verticale, spazi A-D con scelta da un menu, doppio tocco per lo spazio già usato, un foglio solo, PDF raster a 300 dpi con l'etichetta stirata. In `ARCHIVIO/v1/`.
-- **v2** (7 novembre 2026): rifatta nella direzione «Banco» scelta da Andrea fra tre proposte. Rilevamento automatico, verso del testo, corriere e città, trascinamenti, più fogli, spazi usati ricordati fra una stampa e l'altra, PDF vettoriale con le proporzioni giuste, annulla, memoria, stampa e condivisione dal telefono.
+- **v2** (7 novembre 2026): rifatta nella direzione «Banco» scelta da Andrea fra tre proposte. Rilevamento automatico, verso del testo, corriere e città, trascinamenti, più fogli, spazi usati ricordati fra una stampa e l'altra, PDF vettoriale con le proporzioni giuste, annulla, memoria, stampa e condivisione dal telefono, icona «Taglio».

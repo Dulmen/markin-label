@@ -21,13 +21,17 @@ export function quantiFogli(etichette) {
   return Math.max(1, ...etichette.map((e) => e.foglio + 1));
 }
 
-// Un foglio vuoto prima dell'ultimo non si stampa e confonderebbe l'ordine in stampante:
-// in quel caso le etichette scorrono avanti, nell'ordine in cui stanno.
+// Un foglio senza etichette prima dell'ultimo non si stampa e confonderebbe l'ordine in stampante:
+// se ha ancora adesivi liberi, le etichette scorrono avanti nell'ordine in cui stanno.
+// Un foglio tutto staccato invece è finito e si salta.
 export function compatta(etichette, usati) {
   const n = quantiFogli(etichette);
   const pieni = new Set(etichette.map((e) => e.foglio));
   let buco = false;
-  for (let f = 0; f < n - 1; f++) if (!pieni.has(f)) buco = true;
+  for (let f = 0; f < n - 1; f++) {
+    if (pieni.has(f)) continue;
+    for (let s = 0; s < 4; s++) if (!usati.has(f * 4 + s)) buco = true;
+  }
   if (!buco) return false;
   const messe = [];
   for (const e of [...etichette].sort((a, b) => posto(a) - posto(b))) {

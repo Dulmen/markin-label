@@ -182,6 +182,7 @@ Tre raggi come il tracker: 4px (foglio, etichetta in volo), 8px (bottoni, chip),
 - **Barra**: Aggiungi PDF, Svuota, Foglio nuovo, Ristampa, Scarica, Stampa (primario con il numero di etichette). Sul telefono «Altro» raccoglie le azioni secondarie.
 - **Avviso**: vetro sopra la barra, una riga, «Annulla» in lilla quando l'azione si può disfare.
 - **Pannello Ritaglia**: pagina intera, riquadro col filo lilla e otto maniglie da 44px, fuori dal riquadro un velo scuro; anteprima dell'etichetta in alto a destra.
+- **Icona «Taglio»**: famiglia delle icone di Andrea (Cucitura per Finance, Vetro per Transcribe). Fondo greige sfumato, il filo tratteggiato in espresso attorno all'etichetta col codice a barre, che si ferma nel punto lilla #8666B0.
 
 ## Do's and Don'ts
 
